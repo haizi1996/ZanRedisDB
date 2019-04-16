@@ -716,7 +716,7 @@ func (db *RockDB) zRemRange(ts int64, key []byte, min float64, max float64, offs
 	return db.zRemRangeBytes(ts, key, minKey, maxKey, offset, count, wb)
 }
 
-func (db *RockDB) zRangeBytes(key []byte, minKey []byte, maxKey []byte, offset int, count int, reverse bool) ([]common.ScorePair, error) {
+func (db *RockDB) zRangeBytes(preCheckCnt bool, key []byte, minKey []byte, maxKey []byte, offset int, count int, reverse bool) ([]common.ScorePair, error) {
 	if len(key) > MaxKeySize {
 		return nil, errKeySize
 	}
@@ -728,9 +728,9 @@ func (db *RockDB) zRangeBytes(key []byte, minKey []byte, maxKey []byte, offset i
 		return nil, errTooMuchBatchSize
 	}
 	// if count == -1, check if we may get too much data
-	if count < 0 {
+	if count < 0 && preCheckCnt {
 		total, _ := db.ZCard(key)
-		if total > MAX_BATCH_NUM {
+		if total-int64(offset) > MAX_BATCH_NUM {
 			return nil, errTooMuchBatchSize
 		}
 	}
@@ -790,7 +790,11 @@ func (db *RockDB) zRange(key []byte, min float64, max float64, offset int, count
 	}
 	minKey := zEncodeStartScoreKey(table, rk, min)
 	maxKey := zEncodeStopScoreKey(table, rk, max)
-	return db.zRangeBytes(key, minKey, maxKey, offset, count, reverse)
+	preCheckCnt := false
+	if min == common.MinScore && max == common.MaxScore {
+		preCheckCnt = true
+	}
+	return db.zRangeBytes(preCheckCnt, key, minKey, maxKey, offset, count, reverse)
 }
 
 func (db *RockDB) zParseLimit(key []byte, start int, stop int) (offset int, count int, err error) {
@@ -950,7 +954,7 @@ func (db *RockDB) ZRangeGeneric(key []byte, start int, stop int, reverse bool) (
 	}
 	minKey := zEncodeStartKey(table, rk)
 	maxKey := zEncodeStopKey(table, rk)
-	return db.zRangeBytes(key, minKey, maxKey, offset, count, reverse)
+	return db.zRangeBytes(true, key, minKey, maxKey, offset, count, reverse)
 }
 
 //min and max must be inclusive
@@ -1004,9 +1008,9 @@ func (db *RockDB) ZRangeByLex(key []byte, min []byte, max []byte, rangeType uint
 	if count > MAX_BATCH_NUM {
 		return nil, errTooMuchBatchSize
 	}
-	if count < 0 {
+	if count < 0 && min == nil && max == nil {
 		total, _ := db.ZCard(key)
-		if total > MAX_BATCH_NUM {
+		if total-int64(offset) > MAX_BATCH_NUM {
 			return nil, errTooMuchBatchSize
 		}
 	}
